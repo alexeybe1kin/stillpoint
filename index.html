@@ -1,0 +1,1575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stillpoint</title>
+<meta name="description" content="A calm ritual for the moment an urge hits.">
+<meta name="theme-color" content="#8CCBF2">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&family=Figtree:wght@400;500;600&display=swap">
+<!-- Single-file app page: kept as one file so the installable app and the claude.ai version stay easy to diff; it deliberately exceeds the usual 800-line ceiling. -->
+<style>body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+<style>
+/* Layout: full-height stage; views cross-fade over a slow-drifting sky gradient. Single deliberate blue-and-white look. */
+:root {
+  --sky: #8CCBF2;
+  --peri: #6E80E3;
+  --deep: #23508F;
+  --navy: #132F5C;
+  --card-dark: #1B3A6E;
+  --white: #FFFFFF;
+  --mist: rgba(255, 255, 255, 0.8);
+  --faint: rgba(255, 255, 255, 0.58);
+  --line: rgba(255, 255, 255, 0.38);
+  --glass: rgba(255, 255, 255, 0.12);
+  --glass-strong: rgba(255, 255, 255, 0.2);
+  --field: rgba(10, 30, 70, 0.28);
+  --danger: #FFD3D3;
+  /* outcome colors, validated on --card-dark (CVD + normal-vision pass) */
+  --c-held: #2FA98C;
+  --c-other: #8C7DEB;
+  --c-slip: #E06552;
+  --c-hour: #9CC9F5;
+  --display: "Outfit", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --fade-out: 1100ms;
+  --fade-in: 1700ms;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--deep); color: var(--white); font-family: var(--body); font-size: 16px; overflow: hidden; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 2px solid var(--white); outline-offset: 3px; }
+
+/* ---------- background ---------- */
+#bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: linear-gradient(170deg, var(--sky) 0%, #7AA6EC 45%, var(--peri) 100%); transition: filter 1.2s ease; }
+#bg .blob { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .55; will-change: transform; }
+#bg .b1 { width: 70vmax; height: 70vmax; left: -25vmax; top: -20vmax; background: #B7E2FA; animation: drift1 38s ease-in-out infinite alternate; }
+#bg .b2 { width: 60vmax; height: 60vmax; right: -25vmax; bottom: -20vmax; background: #5468D6; animation: drift2 44s ease-in-out infinite alternate; }
+#bg .b3 { width: 40vmax; height: 40vmax; left: 30%; top: 40%; background: #E6F4FF; opacity: .28; animation: drift1 52s ease-in-out infinite alternate-reverse; }
+#bg .photo { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(16px) saturate(1.1); opacity: 0; transition: opacity 2s ease; }
+#bg .photo.on { opacity: 1; }
+#bg .tint { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(120,190,240,.35), rgba(70,90,200,.55)); opacity: 0; transition: opacity 2s ease; }
+#bg .photo.on + .tint { opacity: 1; }
+body.dim #bg { filter: brightness(.55) saturate(1.2); }
+@keyframes drift1 { to { transform: translate(12vmax, 10vmax) scale(1.1); } }
+@keyframes drift2 { to { transform: translate(-14vmax, -8vmax) scale(1.15); } }
+
+/* ---------- views ---------- */
+.view { position: fixed; inset: 0; z-index: 1;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: calc(env(safe-area-inset-top, 0px) + 20px) calc(env(safe-area-inset-bottom, 0px) + 20px);
+  display: flex; flex-direction: column; align-items: center;
+  opacity: 0; visibility: hidden; transition: opacity var(--fade-in) ease, visibility 0s linear var(--fade-in); }
+.view.active { opacity: 1; visibility: visible; transition: opacity var(--fade-in) ease, visibility 0s; }
+/* leaving a view is quick so screens never show through each other; arriving stays slow */
+.view:not(.active) { transition: opacity 450ms ease, visibility 0s linear 450ms; }
+.scroll-view { overflow-y: auto; align-items: stretch; -webkit-overflow-scrolling: touch; transition-duration: 700ms; }
+.scroll-view.active { transition-duration: 700ms; }
+.inner { width: 100%; max-width: 40rem; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; padding-bottom: 40px; }
+.sub-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; }
+.sub-head h2 { font-family: var(--display); font-weight: 300; font-size: 26px; margin: 0; }
+.back-link { background: var(--glass); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; font-size: 14px; color: var(--mist); }
+.back-link:hover { color: var(--white); background: var(--glass-strong); }
+.lead { margin: -8px 0 0; color: var(--mist); font-size: 14px; line-height: 1.5; }
+
+/* home */
+#home { justify-content: space-between; text-align: center; }
+.brand { font-family: var(--display); font-weight: 300; letter-spacing: .32em; text-transform: uppercase; font-size: 12px; color: var(--mist); }
+.home-mid { display: flex; flex-direction: column; align-items: center; gap: 24px; max-width: 30rem; width: 100%; }
+.home-mid h1 { font-family: var(--display); font-weight: 200; font-size: clamp(30px, 8vw, 44px); line-height: 1.15; margin: 0; text-wrap: balance; }
+.home-mid p { margin: 0; color: var(--mist); line-height: 1.55; text-wrap: balance; }
+.modes { display: flex; gap: 8px; overflow-x: auto; max-width: 100%; padding: 2px; scrollbar-width: none; }
+.modes::-webkit-scrollbar { display: none; }
+.mode-pill { flex: none; border: 1px solid var(--line); background: none; border-radius: 999px; padding: 8px 16px; font-size: 14px; color: var(--mist); transition: background .4s ease, color .4s ease; }
+.mode-pill[aria-pressed="true"] { background: var(--white); color: var(--deep); border-color: var(--white); font-weight: 500; }
+.begin { width: 164px; height: 164px; border-radius: 50%; border: 1px solid var(--line);
+  background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.34), rgba(255,255,255,.08) 70%);
+  font-family: var(--display); font-weight: 300; font-size: 19px; letter-spacing: .04em; animation: pulse 5.5s ease-in-out infinite; transition: transform .4s ease, background .4s ease; }
+.begin:hover { background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.44), rgba(255,255,255,.12) 70%); }
+.begin:active { transform: scale(.97); }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.28); } 50% { box-shadow: 0 0 0 26px rgba(255,255,255,0); } }
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; font-size: 13px; color: var(--mist); background: var(--glass); }
+.chip b { font-weight: 600; color: var(--white); font-variant-numeric: tabular-nums; }
+.chip:hover { background: var(--glass-strong); }
+.home-foot { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.tally { font-size: 13px; color: var(--mist); font-variant-numeric: tabular-nums; }
+.tally strong { font-family: var(--display); font-weight: 400; font-size: 15px; color: var(--white); }
+.nav { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.nav button { background: var(--glass); border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px; font-size: 14px; color: var(--mist); }
+.nav button:hover { color: var(--white); background: var(--glass-strong); }
+
+/* run */
+#run { justify-content: center; }
+.close { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 14px); right: max(14px, env(safe-area-inset-right, 0px)); width: 40px; height: 40px; border-radius: 50%; background: var(--glass); border: 1px solid var(--line); font-size: 18px; line-height: 1; color: var(--mist); z-index: 2; }
+.progress { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 30px); left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+.progress i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); transition: background 1s ease, width 1s ease; }
+.progress i.on { background: var(--white); width: 18px; border-radius: 3px; }
+.mode-tag { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 46px); left: 50%; transform: translateX(-50%); font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
+.scene { width: 100%; max-width: 30rem; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px;
+  opacity: 0; transform: translateY(14px); filter: blur(6px); transition: opacity var(--fade-out) ease, transform var(--fade-out) ease, filter var(--fade-out) ease; }
+.scene.in { opacity: 1; transform: none; filter: none; transition: opacity var(--fade-in) ease, transform var(--fade-in) ease, filter var(--fade-in) ease; }
+.scene .eyebrow { font-size: 12px; letter-spacing: .26em; text-transform: uppercase; color: var(--faint); }
+.scene h2 { font-family: var(--display); font-weight: 200; font-size: clamp(30px, 8.5vw, 46px); line-height: 1.15; margin: 0; text-wrap: balance; }
+.scene .detail { color: var(--mist); line-height: 1.6; margin: 0; max-width: 26rem; text-wrap: pretty; white-space: pre-line; }
+.pill { margin-top: 14px; min-width: 200px; padding: 16px 30px; border-radius: 999px; border: 1px solid rgba(255,255,255,.6); background: var(--glass-strong);
+  font-family: var(--display); font-size: 17px; letter-spacing: .02em; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); transition: background .4s ease, opacity 1.2s ease; text-decoration: none; color: inherit; display: inline-block; }
+.pill:hover { background: rgba(255,255,255,.3); }
+.pill.solid { background: var(--white); color: var(--deep); border-color: var(--white); }
+.pill.ghost-in { opacity: 0; pointer-events: none; }
+.pill.ghost-in.show { opacity: 1; pointer-events: auto; }
+.run-nav { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); display: flex; justify-content: center; gap: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); transition: opacity .8s ease; }
+.run-nav button { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px; font-size: 13px; color: var(--mist); }
+.run-nav button:hover:not(:disabled) { color: var(--white); background: var(--glass); }
+.run-nav button:disabled { opacity: .35; }
+
+/* breathing */
+.breath { position: relative; width: 210px; height: 210px; display: grid; place-items: center; margin: 6px 0 34px; }
+.breath .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--line); background: radial-gradient(circle, rgba(255,255,255,.28), rgba(255,255,255,.04) 70%); transform: scale(.55); transition-property: transform; transition-timing-function: ease-in-out; }
+.breath .cue { position: relative; font-family: var(--display); font-weight: 300; font-size: 18px; letter-spacing: .06em; }
+.breath .count { position: absolute; bottom: -34px; font-size: 13px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* reminders */
+.quote { font-family: var(--display); font-weight: 200; font-size: clamp(28px, 7.6vw, 42px); line-height: 1.22; margin: 0; text-wrap: balance; min-height: 3.7em;
+  display: flex; align-items: center; justify-content: center; transition: opacity .7s ease, filter .7s ease, transform .7s ease; }
+.quote.out { opacity: 0; filter: blur(6px); transform: translateY(-8px); }
+.qdots { display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; max-width: 16rem; }
+.qdots i { width: 5px; height: 5px; border-radius: 50%; background: var(--line); transition: background .8s ease; }
+.qdots i.on { background: var(--white); }
+.qctl { display: flex; align-items: center; gap: 14px; }
+.qctl button { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--line); background: var(--glass); font-size: 18px; display: grid; place-items: center; }
+.qctl button.main { width: 62px; height: 62px; background: var(--glass-strong); border-color: rgba(255,255,255,.6); }
+.qctl button:hover { background: rgba(255,255,255,.28); }
+.qbar { width: 120px; height: 2px; border-radius: 1px; background: var(--line); overflow: hidden; }
+.qbar i { display: block; height: 100%; width: 100%; background: var(--white); transform-origin: left; transform: scaleX(0); }
+.qstate { font-size: 12px; color: var(--faint); letter-spacing: .08em; min-height: 1.2em; }
+
+/* leave sheet */
+.sheet { position: absolute; inset: 0; z-index: 3; display: flex; align-items: flex-end; justify-content: center; background: rgba(12, 28, 60, .45);
+  padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  opacity: 0; pointer-events: none; transition: opacity .5s ease; }
+.sheet.open { opacity: 1; pointer-events: auto; }
+.sheet-card { width: 100%; max-width: 26rem; background: var(--navy); border: 1px solid rgba(255,255,255,.2); border-radius: 22px; padding: 20px; display: flex; flex-direction: column; gap: 10px; transform: translateY(20px); transition: transform .5s ease; }
+.sheet.open .sheet-card { transform: none; }
+.sheet-card h3 { margin: 0 0 4px; font-family: var(--display); font-weight: 300; font-size: 22px; text-align: center; }
+.sheet-card p { margin: 0 0 6px; color: var(--mist); font-size: 14px; text-align: center; }
+.sheet-btn { width: 100%; text-align: left; padding: 14px 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,.18); background: var(--glass); font-size: 15px; }
+.sheet-btn small { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
+.sheet-btn:hover { background: var(--glass-strong); }
+.sheet-btn.primary { background: var(--white); color: var(--deep); text-align: center; font-weight: 500; }
+
+/* cards & forms */
+.card { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.card h3 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 18px; }
+.card .hint { margin: -8px 0 0; font-size: 13px; color: var(--mist); line-height: 1.5; }
+label.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--mist); min-width: 0; }
+input[type=text], input[type=url], input[type=date], input[type=number], select, textarea {
+  width: 100%; box-sizing: border-box; background: var(--field); border: 1px solid rgba(255,255,255,.22); border-radius: 12px; padding: 11px 12px; font-size: 15px; letter-spacing: 0; text-transform: none; color: var(--white); }
+textarea { resize: vertical; min-height: 64px; line-height: 1.5; }
+select option { background: var(--navy); }
+input::placeholder, textarea::placeholder { color: rgba(255,255,255,.4); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
+.step { border: 1px solid rgba(255,255,255,.16); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: rgba(10,30,70,.15); }
+.step-top { display: flex; align-items: center; gap: 6px; }
+.step-top .num { font-family: var(--display); font-size: 14px; color: var(--mist); width: 20px; font-variant-numeric: tabular-nums; }
+.step-top select { flex: 1; min-width: 0; }
+.icon-btn { width: 38px; height: 38px; flex: none; border-radius: 10px; border: 1px solid rgba(255,255,255,.2); background: var(--glass); font-size: 15px; display: grid; place-items: center; }
+.icon-btn:hover:not(:disabled) { background: var(--glass-strong); }
+.icon-btn:disabled { opacity: .3; }
+.icon-btn.del { color: var(--danger); }
+.add-btn { align-self: flex-start; border: 1px dashed var(--line); background: none; border-radius: 999px; padding: 9px 16px; font-size: 14px; color: var(--mist); }
+.add-btn:hover { color: var(--white); border-color: var(--white); }
+.choice { display: flex; flex-wrap: wrap; gap: 8px; }
+.choice label { display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; padding: 9px 14px; font-size: 14px; cursor: pointer; }
+.choice input { accent-color: var(--white); margin: 0; }
+.choice label:has(input:checked) { background: var(--glass-strong); border-color: var(--white); }
+.file-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px; color: var(--mist); }
+.file-btn, .small-btn { border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; background: var(--glass); font-size: 13px; color: var(--mist); }
+.file-btn:hover, .small-btn:hover { color: var(--white); background: var(--glass-strong); }
+.small-btn.warn { color: var(--danger); border-color: rgba(255,211,211,.5); }
+.small-btn.armed { background: var(--danger); color: var(--navy); border-color: var(--danger); }
+.mode-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.mode-bar select { flex: 1 1 180px; min-width: 0; }
+.save-bar { position: sticky; bottom: calc(-1 * (env(safe-area-inset-bottom, 0px) + 20px)); z-index: 3; display: flex; justify-content: center; gap: 10px; margin: 0 -16px; padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  background: linear-gradient(180deg, rgba(19,47,92,0), rgba(19,47,92,.94) 40%); }
+.save-bar .pill { margin: 0; min-width: 0; padding: 14px 26px; }
+
+/* streaks */
+.rule { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.rule-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.rule-name { font-family: var(--display); font-size: 19px; font-weight: 400; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.rule-days { text-align: right; flex: none; }
+.rule-days .n { font-family: var(--display); font-weight: 200; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
+.rule-days .u { font-size: 12px; color: var(--mist); letter-spacing: .08em; text-transform: uppercase; }
+.rule-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--mist); font-variant-numeric: tabular-nums; }
+.rule-meta b { color: var(--white); font-weight: 600; }
+.track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); overflow: hidden; }
+.track i { display: block; height: 100%; background: var(--white); border-radius: 3px; }
+.rule-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.slips { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--mist); }
+.rule-edit { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid rgba(255,255,255,.14); padding-top: 14px; }
+
+/* urges */
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat { background: var(--card-dark); border-radius: 16px; padding: 14px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.stat .v { font-family: var(--display); font-weight: 300; font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat .k { font-size: 12px; color: var(--mist); line-height: 1.35; }
+@media (max-width: 380px) { .stat .v { font-size: 22px; } }
+.chart-card { background: var(--card-dark); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.chart-card h3 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 17px; }
+.readout { font-size: 13px; color: var(--mist); min-height: 1.3em; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--mist); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; }
+.bars { display: flex; align-items: flex-end; gap: 4px; height: 130px; border-bottom: 1px solid rgba(255,255,255,.18); }
+.bar { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column-reverse; justify-content: flex-start; gap: 2px; background: none; border: 0; padding: 0; border-radius: 4px 4px 0 0; }
+.bar:hover .seg, .bar:focus-visible .seg, .bar.sel .seg { filter: brightness(1.18); }
+.bar.sel { background: rgba(255,255,255,.06); }
+.seg { width: 100%; display: block; }
+.seg.top { border-radius: 4px 4px 0 0; }
+.axis { display: flex; gap: 4px; font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.axis span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; display: flex; justify-content: center; }
+.mode-rows { display: flex; flex-direction: column; gap: 8px; }
+.mode-row { display: grid; grid-template-columns: minmax(0, 8rem) 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+.mode-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mist); }
+.mode-row .tr { height: 8px; border-radius: 4px; background: rgba(255,255,255,.1); overflow: hidden; }
+.mode-row .tr i { display: block; height: 100%; background: var(--c-hour); border-radius: 4px; }
+.mode-row .ct { font-variant-numeric: tabular-nums; }
+.recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.recent li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.1); font-size: 14px; }
+.recent li:last-child { border-bottom: 0; }
+.recent .when { min-width: 0; }
+.recent .when small { display: block; color: var(--faint); font-size: 12px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mist); white-space: nowrap; }
+.badge i { width: 8px; height: 8px; border-radius: 50%; }
+.empty { color: var(--mist); font-size: 14px; line-height: 1.5; margin: 0; }
+.rm { width: 30px; height: 30px; border-radius: 8px; border: 1px solid transparent; background: none; color: var(--faint); font-size: 13px; }
+.rm:hover { border-color: var(--line); color: var(--white); }
+.rm.armed { background: var(--danger); color: var(--navy); }
+
+.toast { position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 16px); transform: translate(-50%, -20px); z-index: 9; background: var(--white); color: var(--deep); padding: 10px 18px; border-radius: 999px; font-size: 14px; font-weight: 500; opacity: 0; transition: opacity .5s ease, transform .5s ease; pointer-events: none; max-width: calc(100% - 32px); text-align: center; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --fade-out: 300ms; --fade-in: 400ms; }
+  #bg .blob, .begin { animation: none; }
+  .scene { transform: none; filter: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="bg" aria-hidden="true">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="photo" id="bgPhoto"></div><div class="tint"></div>
+</div>
+
+<!-- HOME -->
+<section class="view active" id="home" aria-label="Home">
+  <div class="brand">Stillpoint</div>
+  <div class="home-mid">
+    <h1>Feeling the pull?</h1>
+    <p>Don't argue with it. Do the ritual. Your body already knows the way.</p>
+    <div class="modes" id="modePills" role="group" aria-label="Choose a mode"></div>
+    <button class="begin" id="beginBtn">Begin ritual</button>
+    <div class="chips" id="ruleChips"></div>
+  </div>
+  <div class="home-foot">
+    <div class="tally" id="tally"></div>
+    <nav class="nav" aria-label="Sections">
+      <button id="navStreaks">Streaks</button>
+      <button id="navUrges">Urges</button>
+      <button id="navEdit">Edit modes</button>
+    </nav>
+  </div>
+</section>
+
+<!-- RUN -->
+<section class="view" id="run" aria-label="Ritual">
+  <div class="progress" id="progress" aria-hidden="true"></div>
+  <div class="mode-tag" id="modeTag"></div>
+  <button class="close" id="closeBtn" aria-label="Leave ritual">&#x2715;</button>
+  <div class="scene" id="scene" aria-live="polite"></div>
+  <div class="run-nav" id="runNav">
+    <button id="prevStep">&#8249; Previous step</button>
+    <button id="skipStep">Skip step &#8250;</button>
+  </div>
+  <div class="sheet" id="sheet" aria-hidden="true">
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" id="sheetCard"></div>
+  </div>
+</section>
+
+<!-- STREAKS -->
+<section class="view scroll-view" id="streaks" aria-label="Streaks">
+  <div class="inner">
+    <div class="sub-head"><h2>Streaks</h2><button class="back-link" data-home>&#8249; Home</button></div>
+    <p class="lead">Each rule counts the clean days since you last slipped. If you slip, be honest: reset it and start again.</p>
+    <div id="ruleList" style="display:flex;flex-direction:column;gap:14px"></div>
+    <button class="add-btn" id="addRule">+ Add a rule</button>
+  </div>
+</section>
+
+<!-- URGES -->
+<section class="view scroll-view" id="urges" aria-label="Urges">
+  <div class="inner">
+    <div class="sub-head"><h2>Urges</h2><button class="back-link" data-home>&#8249; Home</button></div>
+    <p class="lead">Every time you start a ritual, it's logged here. Look for the pattern: the time of day, the mode, how it ended.</p>
+    <div class="stats" id="stats"></div>
+    <div class="chart-card">
+      <h3>Last 14 days</h3>
+      <div class="legend" aria-hidden="true">
+        <span><i style="background:var(--c-held)"></i>Held the line</span>
+        <span><i style="background:var(--c-other)"></i>Stopped early or logged</span>
+        <span><i style="background:var(--c-slip)"></i>Gave in</span>
+      </div>
+      <div class="readout" id="dayReadout">Tap a bar to see that day.</div>
+      <div class="bars" id="dayBars"></div>
+      <div class="axis" id="dayAxis" aria-hidden="true"></div>
+    </div>
+    <div class="chart-card">
+      <h3>When urges hit</h3>
+      <div class="readout" id="hourReadout">Tap a bar to see that hour.</div>
+      <div class="bars" id="hourBars" style="height:100px"></div>
+      <div class="axis" id="hourAxis" aria-hidden="true"></div>
+    </div>
+    <div class="chart-card">
+      <h3>By mode</h3>
+      <div class="mode-rows" id="modeRows"></div>
+    </div>
+    <div class="chart-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <h3>Recent</h3>
+        <button class="small-btn" id="logUrge">+ Log an urge now</button>
+      </div>
+      <ul class="recent" id="recent"></ul>
+    </div>
+  </div>
+</section>
+
+<!-- EDIT MODES -->
+<section class="view scroll-view" id="edit" aria-label="Edit modes">
+  <div class="inner">
+    <div class="sub-head"><h2>Modes</h2><button class="back-link" id="editClose">&#8249; Home</button></div>
+    <p class="lead">A mode is one ritual: its own steps, lines and music. Make one for each temptation.</p>
+
+    <div class="card">
+      <div class="mode-bar">
+        <label class="sr" for="modeSelect">Mode to edit</label>
+        <select id="modeSelect"></select>
+        <button class="small-btn" id="newMode">+ New</button>
+        <button class="small-btn" id="dupMode">Duplicate</button>
+        <button class="small-btn warn" id="delMode">Delete</button>
+      </div>
+      <label class="f" for="modeName">Mode name
+        <input type="text" id="modeName" placeholder="e.g. Sugar">
+      </label>
+    </div>
+
+    <div class="card">
+      <h3>Steps</h3>
+      <p class="hint">Played in this order. Each one fades in, waits for you, then fades out.</p>
+      <div id="stepList" style="display:flex;flex-direction:column;gap:12px"></div>
+      <button class="add-btn" id="addStep">+ Add a step</button>
+    </div>
+
+    <div class="card">
+      <h3>Reminders</h3>
+      <p class="hint">The lines you tell yourself, one per line. They play by themselves; you can pause, go back or skip ahead.</p>
+      <label class="f" for="quotes">Lines<textarea id="quotes" rows="9"></textarea></label>
+      <label class="f" for="quoteSecs" style="max-width:220px">Seconds per line<input type="number" id="quoteSecs" min="3" max="60" step="1"></label>
+    </div>
+
+    <div class="card">
+      <h3>Music</h3>
+      <p class="hint">Use the same track every time so it becomes the cue.</p>
+      <div class="choice" role="radiogroup" aria-label="Music source">
+        <label><input type="radio" name="music" value="ambient" id="mAmbient"> Built-in calm sound</label>
+        <label><input type="radio" name="music" value="file" id="mFile"> My own song</label>
+        <label><input type="radio" name="music" value="link" id="mLink"> A link</label>
+      </div>
+      <div class="file-line" id="musicFileLine">
+        <button class="file-btn" id="pickSong">Choose audio file</button>
+        <input type="file" id="songInput" accept="audio/*" class="sr">
+        <span id="songName">No file chosen</span>
+      </div>
+      <label class="f" for="musicLink" id="musicLinkLine">Link to your song (Spotify, YouTube, Apple Music)
+        <input type="url" id="musicLink" placeholder="https://open.spotify.com/track/...">
+      </label>
+      <p class="hint" style="margin:0" id="musicHint"></p>
+    </div>
+
+    <div class="card">
+      <h3>Background (all modes)</h3>
+      <div class="choice" role="radiogroup" aria-label="Background">
+        <label><input type="radio" name="bgsrc" value="gradient" id="bgGrad"> Calm sky gradient</label>
+        <label><input type="radio" name="bgsrc" value="photo" id="bgPhotoOpt"> My own photo, blurred</label>
+      </div>
+      <div class="file-line" id="photoLine">
+        <button class="file-btn" id="pickPhoto">Choose photo</button>
+        <input type="file" id="photoInput" accept="image/*" class="sr">
+        <span id="photoName">No photo chosen</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Backup</h3>
+      <p class="hint">Everything lives on this phone. Save a backup file now and then, so a new phone or a cleared browser doesn't wipe your streaks.</p>
+      <div class="file-line">
+        <button class="file-btn" id="exportData">Save backup file</button>
+        <button class="file-btn" id="pickBackup">Restore from backup</button>
+        <input type="file" id="backupInput" accept="application/json,.json" class="sr">
+      </div>
+      <p class="hint" style="margin:0">Your song and photo aren't in the backup. Pick them again after restoring.</p>
+    </div>
+
+    <div class="save-bar">
+      <button class="pill" id="editCancel">Cancel</button>
+      <button class="pill solid" id="editSave">Save modes</button>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ================= constants =================
+  const LS_CFG = "stillpoint.cfg.v1";
+  const LS_EVENTS = "stillpoint.events.v2";
+  const LS_LEGACY_LOG = "stillpoint.log.v1";
+  const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const FADE_OUT_MS = REDUCED ? 300 : 1100;
+  const QUOTE_FADE_MS = REDUCED ? 150 : 700;
+  const BREATH = { inhale: 4000, hold: 4000, exhale: 6000 };
+  const AUDIO_FADE_S = 3;
+  const DB_TIMEOUT_MS = 10000;
+  const DAY_MS = 86400000;
+  const MAX_EVENTS = 2000;
+  const OUTCOME = {
+    held: { label: "Held the line", color: "var(--c-held)", group: "held" },
+    left: { label: "Stopped early", color: "var(--c-other)", group: "other" },
+    open: { label: "Not finished", color: "var(--c-other)", group: "other" },
+    urge: { label: "Logged urge", color: "var(--c-other)", group: "other" },
+    slip: { label: "Gave in", color: "var(--c-slip)", group: "slip" },
+  };
+  const STEP_TYPES = {
+    action: "Do something (text + button)",
+    breath: "Breathing guide",
+    music: "Play music",
+    reminders: "Reminders (your lines)",
+    final: "Why you started (last screen)",
+  };
+
+  const DEFAULT_STEPS = [
+    { type: "action", title: "Go to your spot.", detail: "The same place every time. Your body will remember it.", button: "I'm here" },
+    { type: "action", title: "Sit in your position.", detail: "Back straight. Feet flat on the floor. Hands resting on your knees.", button: "I'm sitting" },
+    { type: "action", title: "Put your headphones on.", detail: "Shut the world out for a few minutes.", button: "They're on" },
+    { type: "breath", title: "Take a deep breath.", detail: "In through the nose, slowly out through the mouth.", button: "Continue", breaths: 3 },
+    { type: "music", title: "Press play.", detail: "Same song. Same place. Same you.", button: "Continue" },
+    { type: "reminders", title: "Remember.", detail: "", button: "" },
+    { type: "final", title: "Why you started.", detail: "You made a promise to yourself. Every time you keep it, the pull gets weaker and you get stronger. This feeling will pass in a few minutes. The promise stays.", button: "I choose myself" },
+  ];
+  const DEFAULT_QUOTES = [
+    "You said you want to be the best.",
+    "You said you want to make the people around you happy.",
+    "You said you keep your promises.",
+    "You said you would build self-control.",
+    "You said you want to be better.",
+    "You know what the right action is.",
+    "This isn't it.",
+  ];
+
+  // ================= helpers =================
+  const $ = (id) => document.getElementById(id);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const newId = () => Math.random().toString(36).slice(2, 10);
+  const str = (v, fb = "") => (typeof v === "string" ? v : fb);
+  const todayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const el = (tag, props = {}, kids = []) => {
+    const n = document.createElement(tag);
+    Object.entries(props).forEach(([k, v]) => {
+      if (v === undefined || v === null || v === false) return;
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? "" : v);
+    });
+    kids.forEach((c) => c && n.append(typeof c === "string" ? document.createTextNode(c) : c));
+    return n;
+  };
+  const toast = (msg) => {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.remove("show"), 2600);
+  };
+  function readLS(key) { try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch { return null; } }
+  function writeLS(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* blocked storage: db or memory still hold it */ } }
+
+  // two-tap confirmation for destructive buttons (dialogs are unavailable in the viewer)
+  function armed(btn, confirmLabel, action) {
+    const original = btn.textContent;
+    btn.addEventListener("click", () => {
+      if (!btn.classList.contains("armed")) {
+        btn.classList.add("armed");
+        btn.textContent = confirmLabel;
+        clearTimeout(btn._t);
+        btn._t = setTimeout(() => { btn.classList.remove("armed"); btn.textContent = original; }, 4000);
+        return;
+      }
+      clearTimeout(btn._t);
+      btn.classList.remove("armed");
+      btn.textContent = original;
+      action();
+    });
+    return btn;
+  }
+
+  // ================= data model =================
+  function normStep(s) {
+    return { type: s.type, title: str(s.title), detail: str(s.detail), button: str(s.button), breaths: Math.min(10, Math.max(1, Number(s.breaths) || 3)) };
+  }
+  function normMode(m) {
+    const steps = Array.isArray(m?.steps) ? m.steps.filter((s) => s && STEP_TYPES[s.type]).map(normStep) : [];
+    return {
+      id: str(m?.id) || newId(),
+      name: str(m?.name).trim() || "My ritual",
+      steps: steps.length ? steps : DEFAULT_STEPS.map(normStep),
+      quotes: Array.isArray(m?.quotes) ? m.quotes.filter((q) => typeof q === "string" && q.trim()) : [...DEFAULT_QUOTES],
+      quoteSecs: Math.min(60, Math.max(3, Number(m?.quoteSecs) || 7)),
+      music: { source: ["ambient", "file", "link"].includes(m?.music?.source) ? m.music.source : "ambient", link: str(m?.music?.link), fileName: str(m?.music?.fileName) },
+    };
+  }
+  function normRule(r) {
+    return {
+      id: str(r?.id) || newId(),
+      name: str(r?.name),
+      start: /^\d{4}-\d{2}-\d{2}$/.test(str(r?.start)) ? r.start : todayKey(),
+      best: Math.max(0, Number(r?.best) || 0),
+      slips: Array.isArray(r?.slips) ? r.slips.filter((s) => typeof s === "string").slice(-200) : [],
+    };
+  }
+  function defaultCfg() {
+    const mode = normMode({ name: "My ritual" });
+    return {
+      v: 2,
+      modes: [mode],
+      activeMode: mode.id,
+      rules: [normRule({ name: "My first rule", start: todayKey() })],
+      background: { source: "gradient", fileName: "" },
+    };
+  }
+  // accepts v2 data or the v1 single-ritual shape and returns a clean v2 config
+  function migrate(raw) {
+    if (!raw || typeof raw !== "object") return defaultCfg();
+    const background = { source: raw.background?.source === "photo" ? "photo" : "gradient", fileName: str(raw.background?.fileName) };
+    if (Array.isArray(raw.modes) && raw.modes.length) {
+      const modes = raw.modes.map(normMode);
+      const rules = Array.isArray(raw.rules) ? raw.rules.map(normRule).filter((r) => r.name.trim()) : [];
+      const activeMode = modes.some((m) => m.id === raw.activeMode) ? raw.activeMode : modes[0].id;
+      return { v: 2, modes, activeMode, rules, background };
+    }
+    const mode = normMode({ id: "main", name: "My ritual", steps: raw.steps, quotes: raw.quotes, quoteSecs: raw.quoteSecs, music: raw.music });
+    const rules = Array.isArray(raw.pacts) ? raw.pacts.filter((p) => p && str(p.name).trim()).map((p) => normRule({ name: p.name, start: p.start })) : defaultCfg().rules;
+    return { v: 2, modes: [mode], activeMode: mode.id, rules, background };
+  }
+  function normEvents(list) {
+    if (!Array.isArray(list)) return [];
+    return list.filter((e) => e && typeof e.t === "string" && OUTCOME[e.o]).map((e) => ({ id: str(e.id) || newId(), t: e.t, o: e.o, m: str(e.m), r: str(e.r), src: str(e.src) })).slice(-MAX_EVENTS);
+  }
+
+  // ================= state =================
+  let cfg = migrate(readLS(LS_CFG));
+  const legacyLog = readLS(LS_LEGACY_LOG);
+  let store = readLS(LS_EVENTS) || { events: [], legacyHeld: Number(legacyLog?.count) || 0 };
+  store = { events: normEvents(store.events), legacyHeld: Math.max(0, Number(store.legacyHeld) || 0) };
+  let cfgRef = null, evRef = null;
+
+  const activeMode = () => cfg.modes.find((m) => m.id === cfg.activeMode) || cfg.modes[0];
+  const modeName = (id) => cfg.modes.find((m) => m.id === id)?.name || "";
+
+  // ================= persistence =================
+  let writeChain = Promise.resolve();
+  function queueWrite(fn) { writeChain = writeChain.then(fn).catch(() => {}); return writeChain; }
+
+  function saveCfg() {
+    writeLS(LS_CFG, cfg);
+    if (!cfgRef) return Promise.resolve(false);
+    const body = clone(cfg);
+    let ok = false;
+    return queueWrite(async () => { await cfgRef.set(body); ok = true; }).then(() => ok);
+  }
+  function saveEvents() {
+    writeLS(LS_EVENTS, store);
+    if (!evRef) return;
+    const body = clone(store);
+    queueWrite(() => evRef.set(body));
+  }
+  function addEvent(o, extra = {}) {
+    const ev = { id: newId(), t: new Date().toISOString(), o, m: extra.m || "", r: extra.r || "", src: extra.src || "" };
+    store = { ...store, events: [...store.events, ev].slice(-MAX_EVENTS) };
+    saveEvents();
+    return ev.id;
+  }
+  function setOutcome(id, o, extra = {}) {
+    store = { ...store, events: store.events.map((e) => (e.id === id ? { ...e, o, ...extra } : e)) };
+    saveEvents();
+  }
+  function removeEvent(id) {
+    store = { ...store, events: store.events.filter((e) => e.id !== id) };
+    saveEvents();
+  }
+
+  async function connectStore() {
+    if (!window.claude || typeof window.claude.use !== "function") return;
+    try {
+      const [user, db] = await Promise.all([claude.use("user"), claude.use("db")]);
+      if (!user || !db) return;
+      const uid = await user.id();
+      if (!uid) return;
+      const col = db.collection("data/users/" + uid);
+      cfgRef = col.doc("ritual");
+      evRef = col.doc("events");
+      const legacyRef = col.doc("log");
+      const timeout = wait(DB_TIMEOUT_MS).then(() => null);
+      const snaps = await Promise.race([Promise.all([cfgRef.get(), evRef.get(), legacyRef.get()]), timeout]);
+      if (!snaps) return;
+      const [cSnap, eSnap, lSnap] = snaps;
+      if (cSnap.exists) { cfg = migrate(cSnap.data()); writeLS(LS_CFG, cfg); applyBackground(); }
+      if (eSnap.exists) {
+        const remote = eSnap.data();
+        const byId = new Map([...normEvents(remote.events), ...store.events].map((e) => [e.id, e]));
+        const merged = [...byId.values()].sort((a, b) => a.t.localeCompare(b.t)).slice(-MAX_EVENTS);
+        store = { events: merged, legacyHeld: Math.max(store.legacyHeld, Number(remote.legacyHeld) || 0) };
+        writeLS(LS_EVENTS, store);
+      } else if (lSnap.exists) {
+        store = { ...store, legacyHeld: Math.max(store.legacyHeld, Number(lSnap.data().count) || 0) };
+        writeLS(LS_EVENTS, store);
+      }
+      refreshCurrent();
+    } catch {
+      cfgRef = null; evRef = null;
+    }
+  }
+
+  // ================= device media (IndexedDB) =================
+  const media = {
+    open() {
+      if (this.p) return this.p;
+      this.p = new Promise((res, rej) => {
+        try {
+          const req = indexedDB.open("stillpoint", 1);
+          req.onupgradeneeded = () => req.result.createObjectStore("media");
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        } catch (e) { rej(e); }
+      });
+      return this.p;
+    },
+    async get(key) {
+      try {
+        const db = await this.open();
+        return await new Promise((res, rej) => {
+          const r = db.transaction("media").objectStore("media").get(key);
+          r.onsuccess = () => res(r.result || null);
+          r.onerror = () => rej(r.error);
+        });
+      } catch { return null; }
+    },
+    async put(key, blob) {
+      const db = await this.open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction("media", "readwrite");
+        tx.objectStore("media").put(blob, key);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    },
+  };
+  const songKey = (modeId) => "song:" + modeId;
+
+  let photoUrl = null;
+  async function applyBackground(source = cfg.background.source) {
+    const node = $("bgPhoto");
+    if (source !== "photo") { node.classList.remove("on"); return; }
+    const blob = await media.get("photo");
+    if (!blob) { node.classList.remove("on"); return; }
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    photoUrl = URL.createObjectURL(blob);
+    node.style.backgroundImage = `url("${photoUrl}")`;
+    node.classList.add("on");
+  }
+
+  // ================= audio =================
+  const audio = {
+    ctx: null, master: null, el: null, url: null, playing: false,
+    async start(mode) {
+      if (this.playing) return true;
+      if (mode.music.source === "file") {
+        const blob = (await media.get(songKey(mode.id))) || (await media.get("song"));
+        if (blob) return this.startFile(blob);
+      }
+      if (mode.music.source === "link") return false;
+      return this.startAmbient();
+    },
+    async startFile(blob) {
+      this.url = URL.createObjectURL(blob);
+      this.el = new Audio(this.url);
+      this.el.loop = true;
+      this.el.volume = 0;
+      try { await this.el.play(); } catch { return false; }
+      this.playing = true;
+      const t0 = performance.now();
+      const ramp = () => {
+        if (!this.el) return;
+        const k = Math.min(1, (performance.now() - t0) / (AUDIO_FADE_S * 1000));
+        this.el.volume = k * 0.9;
+        if (k < 1) requestAnimationFrame(ramp);
+      };
+      ramp();
+      return true;
+    },
+    startAmbient() {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      const ctx = new AC();
+      const master = ctx.createGain();
+      master.gain.value = 0;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 1400;
+      lp.connect(master).connect(ctx.destination);
+      // warm pad: open chord with slow breathing swells
+      [110, 164.81, 220, 277.18, 329.63, 440].forEach((f, i) => {
+        const o = ctx.createOscillator(); o.type = i % 2 ? "triangle" : "sine"; o.frequency.value = f; o.detune.value = (i - 2.5) * 3;
+        const g = ctx.createGain(); g.gain.value = 0.05;
+        const lfo = ctx.createOscillator(); lfo.frequency.value = 0.04 + i * 0.017;
+        const lg = ctx.createGain(); lg.gain.value = 0.035;
+        lfo.connect(lg).connect(g.gain);
+        o.connect(g).connect(lp);
+        o.start(); lfo.start();
+      });
+      // soft surf: filtered noise rising and falling like waves
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
+      const ch = buf.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < ch.length; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; ch[i] = last * 3.5; }
+      const noise = ctx.createBufferSource(); noise.buffer = buf; noise.loop = true;
+      const nf = ctx.createBiquadFilter(); nf.type = "lowpass"; nf.frequency.value = 700;
+      const ng = ctx.createGain(); ng.gain.value = 0.18;
+      const wave = ctx.createOscillator(); wave.frequency.value = 0.09;
+      const wg = ctx.createGain(); wg.gain.value = 0.14;
+      wave.connect(wg).connect(ng.gain);
+      noise.connect(nf).connect(ng).connect(master);
+      noise.start(); wave.start();
+      master.gain.linearRampToValueAtTime(0.55, ctx.currentTime + AUDIO_FADE_S + 1);
+      this.ctx = ctx; this.master = master; this.playing = true;
+      return true;
+    },
+    stop() {
+      if (!this.playing) return;
+      this.playing = false;
+      if (this.ctx) {
+        const { ctx, master } = this;
+        master.gain.cancelScheduledValues(ctx.currentTime);
+        master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+        master.gain.linearRampToValueAtTime(0, ctx.currentTime + AUDIO_FADE_S);
+        setTimeout(() => ctx.close().catch(() => {}), AUDIO_FADE_S * 1000 + 200);
+        this.ctx = null; this.master = null;
+      }
+      if (this.el) {
+        const a = this.el, url = this.url, v0 = a.volume, t0 = performance.now();
+        const down = () => {
+          const k = Math.min(1, (performance.now() - t0) / (AUDIO_FADE_S * 1000));
+          a.volume = v0 * (1 - k);
+          if (k < 1) requestAnimationFrame(down); else { a.pause(); URL.revokeObjectURL(url); }
+        };
+        down();
+        this.el = null; this.url = null;
+      }
+    },
+  };
+
+  let wakeLock = null;
+  async function keepAwake(on) {
+    try {
+      if (on && "wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen");
+      if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+    } catch { wakeLock = null; }
+  }
+
+  // ================= streak math =================
+  function cleanDays(rule) {
+    const s = new Date(rule.start + "T00:00:00");
+    if (isNaN(s)) return 0;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return Math.max(0, Math.round((today - s) / DAY_MS));
+  }
+  const bestDays = (rule) => Math.max(rule.best, cleanDays(rule));
+  const daysLabel = (n) => `${n} day${n === 1 ? "" : "s"}`;
+
+  function fmtWhen(iso) {
+    const d = new Date(iso);
+    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const dayDiff = Math.round((new Date(todayKey()) - new Date(todayKey(d))) / DAY_MS);
+    if (dayDiff === 0) return `Today, ${time}`;
+    if (dayDiff === 1) return `Yesterday, ${time}`;
+    return `${d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}, ${time}`;
+  }
+
+  // ================= views =================
+  let currentView = "home";
+  function showView(id) {
+    currentView = id;
+    document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === id));
+    document.body.classList.toggle("dim", ["edit", "streaks", "urges"].includes(id));
+    const v = $(id);
+    if (v.classList.contains("scroll-view")) v.scrollTop = 0;
+  }
+  function refreshCurrent() {
+    renderHome();
+    if (currentView === "streaks") renderStreaks();
+    if (currentView === "urges") renderUrges();
+  }
+
+  // ---------- home ----------
+  function renderHome() {
+    const pills = $("modePills");
+    pills.hidden = cfg.modes.length < 2;
+    pills.replaceChildren(...cfg.modes.map((m) => el("button", {
+      class: "mode-pill", text: m.name, "aria-pressed": String(m.id === cfg.activeMode),
+      onclick: () => { cfg = { ...cfg, activeMode: m.id }; saveCfg(); renderHome(); },
+    })));
+    $("ruleChips").replaceChildren(...cfg.rules.map((r) => el("button", { class: "chip", onclick: () => openStreaks() }, [
+      `${r.name} · `, el("b", { text: String(cleanDays(r)) }), cleanDays(r) === 1 ? " day" : " days",
+    ])));
+    const held = store.legacyHeld + store.events.filter((e) => e.o === "held").length;
+    const last = [...store.events].reverse().find((e) => e.o !== "urge");
+    const tally = $("tally");
+    if (held > 0) {
+      tally.replaceChildren("Times you held the line: ", el("strong", { text: String(held) }), last ? ` · last urge ${fmtWhen(last.t).toLowerCase()}` : "");
+    } else {
+      tally.textContent = "Every ritual you finish is counted here.";
+    }
+  }
+
+  // ---------- streaks ----------
+  function openStreaks() { renderStreaks(); showView("streaks"); }
+
+  function updateRule(id, patch) {
+    cfg = { ...cfg, rules: cfg.rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) };
+    saveCfg();
+  }
+  function slipRule(id, src) {
+    const r = cfg.rules.find((x) => x.id === id);
+    if (!r) return;
+    updateRule(id, { best: bestDays(r), start: todayKey(), slips: [...r.slips, new Date().toISOString()].slice(-200) });
+    if (src === "streaks") addEvent("slip", { r: id, src });
+  }
+
+  function renderStreaks() {
+    const list = $("ruleList");
+    if (!cfg.rules.length) {
+      list.replaceChildren(el("p", { class: "empty", text: "No rules yet. Add the first thing you're protecting, like No sugar." }));
+      return;
+    }
+    list.replaceChildren(...cfg.rules.map((r) => ruleCard(r)));
+  }
+
+  function ruleCard(r) {
+    const days = cleanDays(r), best = bestDays(r);
+    const pct = best ? Math.round((days / best) * 100) : 100;
+    const lastSlip = r.slips[r.slips.length - 1];
+    const slipBtn = armed(el("button", { class: "small-btn warn", text: "I slipped" }), "Tap again to reset to 0", () => {
+      slipRule(r.id, "streaks");
+      renderStreaks(); renderHome();
+      toast(`${r.name} reset. Day 0 starts now.`);
+    });
+    const editWrap = el("div", { class: "rule-edit", hidden: true });
+    const editBtn = el("button", { class: "small-btn", text: "Edit", onclick: () => { editWrap.hidden = !editWrap.hidden; } });
+    const nameId = `rn-${r.id}`, startId = `rs-${r.id}`, bestId = `rb-${r.id}`;
+    const nameIn = el("input", { type: "text", id: nameId, value: r.name });
+    const startIn = el("input", { type: "date", id: startId, value: r.start });
+    const bestIn = el("input", { type: "number", id: bestId, min: "0", value: String(r.best) });
+    editWrap.append(
+      el("label", { class: "f", for: nameId }, ["Rule", nameIn]),
+      el("div", { class: "row" }, [
+        el("label", { class: "f", for: startId }, ["Clean since", startIn]),
+        el("label", { class: "f", for: bestId }, ["Best streak (days)", bestIn]),
+      ]),
+      el("div", { class: "rule-actions" }, [
+        el("button", { class: "small-btn", text: "Save", onclick: () => {
+          const name = nameIn.value.trim();
+          if (!name) { toast("Give the rule a name."); return; }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(startIn.value)) { toast("Pick a start date."); return; }
+          updateRule(r.id, { name, start: startIn.value, best: Math.max(0, Number(bestIn.value) || 0) });
+          renderStreaks(); renderHome(); toast("Rule saved");
+        } }),
+        armed(el("button", { class: "small-btn warn", text: "Delete rule" }), "Tap again to delete", () => {
+          cfg = { ...cfg, rules: cfg.rules.filter((x) => x.id !== r.id) };
+          saveCfg(); renderStreaks(); renderHome(); toast("Rule deleted");
+        }),
+      ])
+    );
+    return el("article", { class: "rule" }, [
+      el("div", { class: "rule-top" }, [
+        el("h3", { class: "rule-name", text: r.name }),
+        el("div", { class: "rule-days" }, [el("div", { class: "n", text: String(days) }), el("div", { class: "u", text: days === 1 ? "day clean" : "days clean" })]),
+      ]),
+      el("div", { class: "track", "aria-hidden": "true" }, [el("i", { style: `width:${Math.min(100, pct)}%` })]),
+      el("div", { class: "rule-meta" }, [
+        el("span", {}, ["Best ", el("b", { text: daysLabel(best) })]),
+        el("span", {}, ["Slips ", el("b", { text: String(r.slips.length) })]),
+        el("span", { text: lastSlip ? `Last slip ${fmtWhen(lastSlip).toLowerCase()}` : `Since ${new Date(r.start + "T00:00:00").toLocaleDateString([], { day: "numeric", month: "short" })}` }),
+      ]),
+      el("div", { class: "rule-actions" }, [slipBtn, editBtn]),
+      r.slips.length ? el("ul", { class: "slips", "aria-label": "Recent slips" }, r.slips.slice(-4).reverse().map((s) => el("li", { text: `Slipped ${fmtWhen(s)}` }))) : null,
+      editWrap,
+    ]);
+  }
+
+  // ---------- urges ----------
+  function renderUrges() {
+    const evs = store.events.filter((e) => e.src !== "streaks");
+    const now = Date.now();
+    const week = evs.filter((e) => now - new Date(e.t) < 7 * DAY_MS);
+    const month = evs.filter((e) => now - new Date(e.t) < 30 * DAY_MS && e.o !== "urge");
+    const heldRate = month.length ? Math.round((month.filter((e) => e.o === "held").length / month.length) * 100) : null;
+    const hours = Array(24).fill(0);
+    evs.forEach((e) => { hours[new Date(e.t).getHours()] += 1; });
+    const peak = Math.max(...hours);
+    const peakHour = peak ? hours.indexOf(peak) : -1;
+    const fmtHour = (h) => `${String(h).padStart(2, "0")}:00`;
+
+    const stat = (v, k) => el("div", { class: "stat" }, [el("div", { class: "v", text: v }), el("div", { class: "k", text: k })]);
+    $("stats").replaceChildren(
+      stat(String(week.length), "urges in the last 7 days"),
+      stat(heldRate === null ? "–" : `${heldRate}%`, "held the line, last 30 days"),
+      stat(peakHour < 0 ? "–" : fmtHour(peakHour), "most urges start around")
+    );
+
+    renderDayChart(evs);
+    renderHourChart(hours, fmtHour);
+    renderModeRows(evs);
+    renderRecent();
+  }
+
+  function selectBar(container, btn) {
+    container.querySelectorAll(".bar.sel").forEach((b) => b.classList.remove("sel"));
+    btn.classList.add("sel");
+  }
+
+  function renderDayChart(evs) {
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+      days.push({ key: todayKey(d), date: d, held: 0, other: 0, slip: 0 });
+    }
+    const idx = new Map(days.map((d, i) => [d.key, i]));
+    evs.forEach((e) => {
+      const i = idx.get(todayKey(new Date(e.t)));
+      if (i !== undefined) days[i][OUTCOME[e.o].group] += 1;
+    });
+    const max = Math.max(1, ...days.map((d) => d.held + d.other + d.slip));
+    const readout = $("dayReadout"), box = $("dayBars");
+    box.replaceChildren(...days.map((d) => {
+      const total = d.held + d.other + d.slip;
+      const dayName = d.date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+      const text = total ? `${dayName}: ${total} urge${total === 1 ? "" : "s"} · ${d.held} held · ${d.other} stopped early or logged · ${d.slip} gave in` : `${dayName}: no urges logged`;
+      const segs = [["held", "var(--c-held)"], ["other", "var(--c-other)"], ["slip", "var(--c-slip)"]].filter(([k]) => d[k] > 0);
+      const btn = el("button", { class: "bar", "aria-label": text }, segs.map(([k, c], i) =>
+        el("span", { class: `seg${i === segs.length - 1 ? " top" : ""}`, style: `height:calc(${(d[k] / max) * 100}% - 2px);background:${c}` })));
+      const show = () => { readout.textContent = text; selectBar(box, btn); };
+      btn.addEventListener("click", show);
+      btn.addEventListener("mouseenter", show);
+      btn.addEventListener("focus", show);
+      return btn;
+    }));
+    $("dayAxis").replaceChildren(...days.map((d, i) => el("span", { text: i % 2 === 1 || i === 13 ? String(d.date.getDate()) : "" })));
+  }
+
+  function renderHourChart(hours, fmtHour) {
+    const max = Math.max(1, ...hours);
+    const readout = $("hourReadout"), box = $("hourBars");
+    box.replaceChildren(...hours.map((n, h) => {
+      const text = `${fmtHour(h)}–${fmtHour((h + 1) % 24)}: ${n} urge${n === 1 ? "" : "s"}`;
+      const btn = el("button", { class: "bar", "aria-label": text }, n ? [el("span", { class: "seg top", style: `height:${(n / max) * 100}%;background:var(--c-hour)` })] : []);
+      const show = () => { readout.textContent = text; selectBar(box, btn); };
+      btn.addEventListener("click", show);
+      btn.addEventListener("mouseenter", show);
+      btn.addEventListener("focus", show);
+      return btn;
+    }));
+    $("hourAxis").replaceChildren(...hours.map((_, h) => el("span", { text: h % 6 === 0 ? String(h).padStart(2, "0") : "" })));
+  }
+
+  function renderModeRows(evs) {
+    const counts = new Map();
+    evs.forEach((e) => { const k = modeName(e.m) || (e.m ? "Deleted mode" : "Logged without a mode"); counts.set(k, (counts.get(k) || 0) + 1); });
+    const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const max = Math.max(1, ...rows.map((r) => r[1]));
+    $("modeRows").replaceChildren(...(rows.length ? rows.map(([name, n]) => el("div", { class: "mode-row" }, [
+      el("span", { class: "nm", text: name, title: name }),
+      el("span", { class: "tr", "aria-hidden": "true" }, [el("i", { style: `width:${(n / max) * 100}%` })]),
+      el("span", { class: "ct", text: String(n) }),
+    ])) : [el("p", { class: "empty", text: "Nothing yet. Start a ritual and it shows up here." })]));
+  }
+
+  function renderRecent() {
+    const list = [...store.events].reverse().slice(0, 30);
+    $("recent").replaceChildren(...(list.length ? list.map((e) => {
+      const out = OUTCOME[e.o];
+      const ruleName = e.r ? cfg.rules.find((r) => r.id === e.r)?.name : "";
+      const sub = [modeName(e.m), ruleName, e.src === "streaks" ? "reported on Streaks" : ""].filter(Boolean).join(" · ");
+      const rm = armed(el("button", { class: "rm", "aria-label": "Remove this entry", text: "✕" }), "✓", () => { removeEvent(e.id); renderUrges(); renderHome(); });
+      return el("li", {}, [
+        el("div", { class: "when" }, [fmtWhen(e.t), sub ? el("small", { text: sub }) : null]),
+        el("span", { class: "badge" }, [el("i", { style: `background:${out.color}` }), out.label]),
+        rm,
+      ]);
+    }) : [el("li", {}, [el("p", { class: "empty", text: "No urges logged yet. When one comes, start your ritual or tap \"Log an urge now\"." })])]));
+  }
+
+  // ================= ritual runner =================
+  let run = null; // { mode, idx, stepToken, eventId, ended }
+
+  const stepAlive = (token) => run && run.stepToken === token;
+
+  function setProgress() {
+    $("progress").replaceChildren(...run.mode.steps.map((_, i) => el("i", { class: i === run.idx ? "on" : "" })));
+    $("prevStep").disabled = run.idx <= 0;
+  }
+
+  async function swapScene(build) {
+    const scene = $("scene");
+    const token = Symbol("step");
+    run.stepToken = token;
+    scene.classList.remove("in");
+    await wait(FADE_OUT_MS);
+    if (!stepAlive(token)) return null;
+    scene.replaceChildren();
+    build(scene);
+    void scene.offsetWidth;
+    scene.classList.add("in");
+    return token;
+  }
+
+  async function beginRitual() {
+    const mode = activeMode();
+    run = { mode, idx: -1, stepToken: null, eventId: addEvent("open", { m: mode.id }), ended: false };
+    keepAwake(true);
+    $("scene").classList.remove("in");
+    $("modeTag").textContent = cfg.modes.length > 1 ? mode.name : "";
+    $("runNav").hidden = false;
+    closeSheet();
+    showView("run");
+    await wait(900);
+    goTo(0);
+  }
+
+  function goTo(i) {
+    if (!run || run.ended) return;
+    if (i < 0) return;
+    if (i >= run.mode.steps.length) { finish(); return; }
+    run.idx = i;
+    setProgress();
+    const step = run.mode.steps[i];
+    ({ action: sceneAction, breath: sceneBreath, music: sceneMusic, reminders: sceneReminders, final: sceneFinal })[step.type](step);
+  }
+  const nextStep = () => run && goTo(run.idx + 1);
+  const prevStep = () => run && goTo(run.idx - 1);
+
+  function onceGuard(fn) { let used = false; return () => { if (used) return; used = true; fn(); }; }
+  const pillBtn = (label, onClick, extra = "") => el("button", { class: `pill ${extra}`.trim(), text: label || "Continue", onclick: onClick });
+
+  function headline(scene, step) {
+    if (step.title) scene.append(el("h2", { text: step.title }));
+    if (step.detail) scene.append(el("p", { class: "detail", text: step.detail }));
+  }
+
+  function sceneAction(step) {
+    swapScene((s) => { headline(s, step); s.append(pillBtn(step.button, onceGuard(nextStep))); });
+  }
+
+  async function sceneBreath(step) {
+    let ring, cue, count, btn;
+    const token = await swapScene((s) => {
+      headline(s, { title: step.title });
+      ring = el("div", { class: "ring" });
+      cue = el("div", { class: "cue", text: "Ready" });
+      count = el("div", { class: "count" });
+      s.append(el("div", { class: "breath" }, [ring, cue, count]));
+      if (step.detail) s.append(el("p", { class: "detail", text: step.detail }));
+      btn = pillBtn(step.button, onceGuard(nextStep), "ghost-in");
+      s.append(btn);
+    });
+    if (!token) return;
+    const phase = async (label, scale, ms) => {
+      if (!stepAlive(token)) return false;
+      cue.textContent = label;
+      ring.style.transitionDuration = `${ms}ms`;
+      ring.style.transform = `scale(${scale})`;
+      await wait(ms);
+      return stepAlive(token);
+    };
+    await wait(1200);
+    const total = step.breaths || 3;
+    for (let i = 1; i <= total; i++) {
+      count.textContent = `${i} of ${total}`;
+      if (!(await phase("Breathe in", 1, BREATH.inhale))) return;
+      if (!(await phase("Hold", 1, BREATH.hold))) return;
+      if (!(await phase("Breathe out", 0.55, BREATH.exhale))) return;
+    }
+    cue.textContent = "Good";
+    count.textContent = "";
+    btn.classList.add("show");
+  }
+
+  function sceneMusic(step) {
+    const mode = run.mode;
+    swapScene((s) => {
+      headline(s, step);
+      if (mode.music.source === "link" && mode.music.link) {
+        s.append(el("a", { class: "pill", href: mode.music.link, target: "_blank", rel: "noopener", text: "Open my song" }));
+        s.append(pillBtn(step.button, onceGuard(nextStep), "solid"));
+        return;
+      }
+      const advance = onceGuard(nextStep);
+      const go = pillBtn(audio.playing ? step.button : "Play", null, audio.playing ? "solid" : "");
+      go.addEventListener("click", async () => {
+        if (audio.playing) { advance(); return; }
+        go.disabled = true;
+        const ok = await audio.start(mode);
+        go.disabled = false;
+        if (!ok) toast("Couldn't play the song. Check it in Edit modes.");
+        go.textContent = step.button || "Continue";
+        go.classList.add("solid");
+      });
+      s.append(go);
+    });
+  }
+
+  async function sceneReminders(step) {
+    const mode = run.mode;
+    const lines = mode.quotes.length ? mode.quotes : DEFAULT_QUOTES;
+    const secs = mode.quoteSecs;
+    let quote, dots, bar, state, pauseBtn;
+    const token = await swapScene((s) => {
+      if (step.title) s.append(el("div", { class: "eyebrow", text: step.title }));
+      quote = el("p", { class: "quote" });
+      dots = el("div", { class: "qdots", "aria-hidden": "true" }, lines.map(() => el("i")));
+      bar = el("i");
+      state = el("div", { class: "qstate" });
+      pauseBtn = el("button", { class: "main", "aria-label": "Pause" });
+      s.append(quote, dots,
+        el("div", { class: "qctl" }, [
+          el("button", { "aria-label": "Previous line", text: "‹", onclick: () => go(-1) }),
+          pauseBtn,
+          el("button", { "aria-label": "Next line", text: "›", onclick: () => go(1) }),
+        ]),
+        el("div", { class: "qbar", "aria-hidden": "true" }, [bar]),
+        state);
+    });
+    if (!token) return;
+
+    let qi = 0, paused = false, timer = null, version = 0;
+    const setPauseUI = () => {
+      pauseBtn.textContent = paused ? "▶" : "❚❚";
+      pauseBtn.setAttribute("aria-label", paused ? "Play" : "Pause");
+      state.textContent = paused ? "Paused. Stay as long as you need." : "";
+    };
+    const animateBar = () => {
+      bar.style.transition = "none";
+      bar.style.transform = "scaleX(0)";
+      void bar.offsetWidth;
+      if (paused) return;
+      bar.style.transition = `transform ${secs}s linear`;
+      bar.style.transform = "scaleX(1)";
+    };
+    const schedule = () => {
+      clearTimeout(timer);
+      animateBar();
+      if (paused) return;
+      timer = setTimeout(() => {
+        if (!stepAlive(token)) return;
+        if (run.sheetOpen) { schedule(); return; }
+        go(1);
+      }, secs * 1000);
+    };
+    const render = async (first) => {
+      const v = ++version;
+      if (!first) { quote.classList.add("out"); await wait(QUOTE_FADE_MS); }
+      if (!stepAlive(token) || v !== version) return;
+      quote.textContent = lines[qi];
+      [...dots.children].forEach((d, j) => d.classList.toggle("on", j <= qi));
+      quote.classList.remove("out");
+    };
+    function go(d) {
+      if (!stepAlive(token)) return;
+      const n = qi + d;
+      if (n < 0) { clearTimeout(timer); prevStep(); return; }
+      if (n >= lines.length) { clearTimeout(timer); nextStep(); return; }
+      qi = n;
+      render(false);
+      schedule();
+    }
+    pauseBtn.addEventListener("click", () => { paused = !paused; setPauseUI(); schedule(); });
+    setPauseUI();
+    render(true);
+    schedule();
+  }
+
+  function sceneFinal(step) {
+    swapScene((s) => { headline(s, step); s.append(pillBtn(step.button || "I choose myself", onceGuard(nextStep), "solid")); });
+  }
+
+  async function finish() {
+    run.ended = true;
+    setOutcome(run.eventId, "held");
+    $("progress").replaceChildren();
+    $("runNav").hidden = true;
+    const held = store.legacyHeld + store.events.filter((e) => e.o === "held").length;
+    await swapSceneForce((s) => {
+      s.append(el("div", { class: "eyebrow", text: `Ritual ${held}` }));
+      s.append(el("h2", { text: "You held the line." }));
+      s.append(el("p", { class: "detail", text: "The urge passes. The habit stays. Next time it will be a little easier." }));
+      s.append(pillBtn("Back home", () => endRitual(), "solid"));
+    });
+  }
+  // like swapScene but runs even after the ritual is marked ended
+  async function swapSceneForce(build) {
+    const scene = $("scene");
+    const token = Symbol("end");
+    run.stepToken = token;
+    scene.classList.remove("in");
+    await wait(FADE_OUT_MS);
+    if (!run || run.stepToken !== token) return;
+    scene.replaceChildren();
+    build(scene);
+    void scene.offsetWidth;
+    scene.classList.add("in");
+  }
+
+  function endRitual() {
+    run = null;
+    audio.stop();
+    keepAwake(false);
+    closeSheet();
+    renderHome();
+    showView("home");
+  }
+
+  // ---------- leave sheet ----------
+  function openSheet() {
+    if (!run) return;
+    if (run.ended) { endRitual(); return; }
+    run.sheetOpen = true;
+    const card = $("sheetCard");
+    const leave = (o, extra) => { setOutcome(run.eventId, o, extra); endRitual(); };
+    const btn = (title, sub, onClick, cls = "") => el("button", { class: `sheet-btn ${cls}`.trim(), onclick: onClick }, [title, sub ? el("small", { text: sub }) : null]);
+    card.replaceChildren(
+      el("h3", { id: "sheetTitle", text: "Leaving early?" }),
+      el("p", { text: "Tell it straight. It helps you see the pattern." }),
+      btn("The urge passed", "Counts as holding the line", () => leave("held")),
+      btn("Just stopping for now", "Logged as stopped early", () => leave("left")),
+      btn("I gave in", "Reset a streak and start again", () => showSlipPicker()),
+      btn("Keep going", "", closeSheet, "primary")
+    );
+    $("sheet").classList.add("open");
+    $("sheet").setAttribute("aria-hidden", "false");
+    card.querySelector("button").focus();
+  }
+  function showSlipPicker() {
+    const card = $("sheetCard");
+    const done = (ruleId) => {
+      if (ruleId) slipRule(ruleId, "run");
+      setOutcome(run.eventId, "slip", { r: ruleId || "" });
+      const name = cfg.rules.find((r) => r.id === ruleId)?.name;
+      endRitual();
+      toast(name ? `${name} reset. Start again, today counts.` : "Logged. Start again, today counts.");
+    };
+    card.replaceChildren(
+      el("h3", { id: "sheetTitle", text: "Which rule?" }),
+      el("p", { text: "It resets to 0. Your best streak is kept." }),
+      ...cfg.rules.map((r) => el("button", { class: "sheet-btn", onclick: () => done(r.id) }, [r.name, el("small", { text: `${daysLabel(cleanDays(r))} clean now` })])),
+      el("button", { class: "sheet-btn", onclick: () => done("") }, ["Something else", el("small", { text: "Log it without resetting a streak" })]),
+      el("button", { class: "sheet-btn primary", onclick: openSheet, text: "Back" })
+    );
+    card.querySelector("button").focus();
+  }
+  function closeSheet() {
+    if (run) run.sheetOpen = false;
+    $("sheet").classList.remove("open");
+    $("sheet").setAttribute("aria-hidden", "true");
+  }
+
+  // ================= edit modes =================
+  let draft = null; // { modes, activeMode, editing, background }
+
+  function openEdit() {
+    draft = { modes: clone(cfg.modes), activeMode: cfg.activeMode, editing: cfg.activeMode, background: { ...cfg.background }, songs: {} };
+    renderEdit();
+    showView("edit");
+  }
+  const editingMode = () => draft.modes.find((m) => m.id === draft.editing) || draft.modes[0];
+  function patchEditing(patch) {
+    draft = { ...draft, modes: draft.modes.map((m) => (m.id === draft.editing ? { ...m, ...patch } : m)) };
+  }
+  // pull the free-text fields into the draft before switching modes or saving
+  function captureFields() {
+    patchEditing({
+      name: $("modeName").value,
+      quotes: $("quotes").value.split("\n").map((s) => s.trim()).filter(Boolean),
+      quoteSecs: Number($("quoteSecs").value),
+      music: { ...editingMode().music, link: $("musicLink").value.trim() },
+    });
+  }
+
+  function renderEdit() {
+    const m = editingMode();
+    $("modeSelect").replaceChildren(...draft.modes.map((x) => el("option", { value: x.id, text: x.name || "Untitled mode", selected: x.id === m.id })));
+    $("delMode").disabled = draft.modes.length < 2;
+    $("modeName").value = m.name;
+    renderSteps();
+    $("quotes").value = m.quotes.join("\n");
+    $("quoteSecs").value = m.quoteSecs;
+    $({ ambient: "mAmbient", file: "mFile", link: "mLink" }[m.music.source]).checked = true;
+    $("musicLink").value = m.music.link;
+    $("songName").textContent = m.music.fileName || "No file chosen";
+    $(draft.background.source === "photo" ? "bgPhotoOpt" : "bgGrad").checked = true;
+    $("photoName").textContent = draft.background.fileName || "No photo chosen";
+    syncEditUI();
+  }
+
+  function syncEditUI() {
+    const src = editingMode().music.source;
+    $("musicFileLine").hidden = src !== "file";
+    $("musicLinkLine").hidden = src !== "link";
+    $("photoLine").hidden = draft.background.source !== "photo";
+    $("musicHint").textContent = {
+      ambient: "A soft pad with slow waves, made right on your phone. No file needed.",
+      file: "The song is kept on this device only. Pick it again on another phone.",
+      link: "Opens your song in its own app. Start it, then come back here.",
+    }[src];
+  }
+
+  function renderSteps() {
+    const steps = editingMode().steps;
+    const n = steps.length;
+    const setSteps = (next) => { patchEditing({ steps: next }); renderSteps(); };
+    $("stepList").replaceChildren(...steps.map((st, i) => {
+      const upd = (patch) => patchEditing({ steps: editingMode().steps.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+      const move = (d) => { const arr = [...editingMode().steps]; [arr[i], arr[i + d]] = [arr[i + d], arr[i]]; setSteps(arr); };
+      const typeSel = el("select", { id: `step-type-${i}`, "aria-label": `Step ${i + 1} type` },
+        Object.entries(STEP_TYPES).map(([v, label]) => el("option", { value: v, text: label, selected: v === st.type })));
+      typeSel.addEventListener("change", () => { upd({ type: typeSel.value }); renderSteps(); });
+      const field = (key, label, multiline, placeholder) => {
+        const id = `step-${key}-${i}`;
+        const input = multiline ? el("textarea", { id, rows: "2", placeholder }) : el("input", { type: "text", id, placeholder });
+        input.value = st[key] || "";
+        input.addEventListener("input", () => upd({ [key]: input.value }));
+        return el("label", { class: "f", for: id }, [label, input]);
+      };
+      const kids = [
+        el("div", { class: "step-top" }, [
+          el("span", { class: "num", text: String(i + 1) }),
+          typeSel,
+          el("button", { class: "icon-btn", "aria-label": "Move up", text: "↑", disabled: i === 0, onclick: () => move(-1) }),
+          el("button", { class: "icon-btn", "aria-label": "Move down", text: "↓", disabled: i === n - 1, onclick: () => move(1) }),
+          el("button", { class: "icon-btn del", "aria-label": `Remove step ${i + 1}`, text: "✕", disabled: n <= 1, onclick: () => setSteps(editingMode().steps.filter((_, j) => j !== i)) }),
+        ]),
+        field("title", st.type === "reminders" ? "Small heading" : "Main text", false, "Go to your spot."),
+      ];
+      if (st.type === "reminders") {
+        kids.push(el("p", { class: "hint", style: "margin:0", text: "Shows your reminder lines one by one. Edit them below." }));
+      } else {
+        kids.push(field("detail", st.type === "final" ? "Your reason (why you started)" : "Smaller text under it", true, ""));
+        const row = el("div", { class: "row" }, [field("button", "Button text", false, "Continue")]);
+        if (st.type === "breath") {
+          const id = `step-breaths-${i}`;
+          const num = el("input", { type: "number", id, min: "1", max: "10", value: String(st.breaths || 3) });
+          num.addEventListener("input", () => upd({ breaths: Math.min(10, Math.max(1, Number(num.value) || 3)) }));
+          row.append(el("label", { class: "f", for: id }, ["Number of breaths", num]));
+        }
+        kids.push(row);
+      }
+      return el("div", { class: "step" }, kids);
+    }));
+  }
+
+  function switchEditing(id) { captureFields(); draft = { ...draft, editing: id }; renderEdit(); }
+
+  async function saveEdit() {
+    captureFields();
+    const bad = draft.modes.find((m) => m.music.source === "link" && m.music.link && !/^https:\/\//i.test(m.music.link));
+    if (bad) { toast(`The song link in "${bad.name}" should start with https://`); return; }
+    const modes = draft.modes.map(normMode);
+    cfg = { ...cfg, modes, activeMode: modes.some((m) => m.id === draft.editing) ? draft.editing : modes[0].id, background: { ...draft.background } };
+    try {
+      for (const [modeId, file] of Object.entries(draft.songs)) {
+        if (modes.some((m) => m.id === modeId)) await media.put(songKey(modeId), file);
+      }
+    } catch { toast("This browser couldn't store the song. Try a smaller file."); }
+    applyBackground();
+    renderHome();
+    showView("home");
+    await saveCfg();
+    toast("Modes saved");
+  }
+
+  async function onPickSong() {
+    const input = $("songInput");
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (!file) return;
+    draft = { ...draft, songs: { ...draft.songs, [draft.editing]: file } };
+    patchEditing({ music: { ...editingMode().music, source: "file", fileName: file.name } });
+    $("mFile").checked = true;
+    $("songName").textContent = file.name;
+    syncEditUI();
+  }
+  async function onPickPhoto() {
+    const input = $("photoInput");
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (!file) return;
+    try {
+      await media.put("photo", file);
+      draft = { ...draft, background: { source: "photo", fileName: file.name } };
+      $("bgPhotoOpt").checked = true;
+      $("photoName").textContent = file.name;
+      syncEditUI();
+      applyBackground("photo");
+    } catch { toast("This browser couldn't store the photo. Try a smaller one."); }
+  }
+
+  // ================= wiring =================
+  $("beginBtn").addEventListener("click", beginRitual);
+  $("closeBtn").addEventListener("click", openSheet);
+  $("prevStep").addEventListener("click", prevStep);
+  $("skipStep").addEventListener("click", nextStep);
+  $("sheet").addEventListener("click", (e) => { if (e.target === $("sheet")) closeSheet(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && run?.sheetOpen) closeSheet(); });
+
+  $("navStreaks").addEventListener("click", openStreaks);
+  $("navUrges").addEventListener("click", () => { renderUrges(); showView("urges"); });
+  $("navEdit").addEventListener("click", openEdit);
+  document.querySelectorAll("[data-home]").forEach((b) => b.addEventListener("click", () => { renderHome(); showView("home"); }));
+
+  $("addRule").addEventListener("click", () => {
+    const rule = normRule({ name: "New rule", start: todayKey() });
+    cfg = { ...cfg, rules: [...cfg.rules, rule] };
+    saveCfg();
+    renderStreaks();
+    const cards = $("ruleList").querySelectorAll(".rule");
+    const last = cards[cards.length - 1];
+    if (last) { last.querySelector(".rule-edit").hidden = false; last.querySelector("input").select(); }
+  });
+  $("logUrge").addEventListener("click", () => { addEvent("urge", { m: "" }); renderUrges(); renderHome(); toast("Urge logged"); });
+
+  $("modeSelect").addEventListener("change", (e) => switchEditing(e.target.value));
+  $("newMode").addEventListener("click", () => {
+    captureFields();
+    const m = normMode({ name: "New mode" });
+    draft = { ...draft, modes: [...draft.modes, m], editing: m.id };
+    renderEdit();
+    $("modeName").select();
+  });
+  $("dupMode").addEventListener("click", () => {
+    captureFields();
+    const src = editingMode();
+    const m = { ...clone(src), id: newId(), name: `${src.name} copy`, music: { ...src.music, fileName: src.music.source === "file" ? "" : src.music.fileName } };
+    draft = { ...draft, modes: [...draft.modes, m], editing: m.id };
+    renderEdit();
+    toast("Copied. Pick the song again if it uses your own file.");
+  });
+  armed($("delMode"), "Tap again to delete", () => {
+    if (draft.modes.length < 2) return;
+    const modes = draft.modes.filter((m) => m.id !== draft.editing);
+    draft = { ...draft, modes, editing: modes[0].id };
+    renderEdit();
+  });
+  $("modeName").addEventListener("input", () => {
+    patchEditing({ name: $("modeName").value });
+    const opt = $("modeSelect").selectedOptions[0];
+    if (opt) opt.textContent = $("modeName").value || "Untitled mode";
+  });
+  $("addStep").addEventListener("click", () => { patchEditing({ steps: [...editingMode().steps, { type: "action", title: "", detail: "", button: "Continue", breaths: 3 }] }); renderSteps(); });
+  document.querySelectorAll('input[name="music"]').forEach((r) => r.addEventListener("change", () => { patchEditing({ music: { ...editingMode().music, source: r.value } }); syncEditUI(); }));
+  document.querySelectorAll('input[name="bgsrc"]').forEach((r) => r.addEventListener("change", () => { draft = { ...draft, background: { ...draft.background, source: r.value } }; syncEditUI(); applyBackground(r.value); }));
+  $("pickSong").addEventListener("click", () => $("songInput").click());
+  $("pickPhoto").addEventListener("click", () => $("photoInput").click());
+  $("songInput").addEventListener("change", onPickSong);
+  $("photoInput").addEventListener("change", onPickPhoto);
+  $("editSave").addEventListener("click", saveEdit);
+  const cancelEdit = () => { applyBackground(); renderHome(); showView("home"); };
+  $("editCancel").addEventListener("click", cancelEdit);
+  $("editClose").addEventListener("click", cancelEdit);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") { if (run) keepAwake(true); refreshCurrent(); }
+  });
+
+  // ================= backup (installed app keeps data on the phone only) =================
+  $("exportData").addEventListener("click", () => {
+    const payload = { app: "stillpoint", version: 2, exported: new Date().toISOString(), cfg, store };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: `stillpoint-backup-${todayKey()}.json` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast("Backup saved to your downloads");
+  });
+  $("pickBackup").addEventListener("click", () => $("backupInput").click());
+  $("backupInput").addEventListener("change", async () => {
+    const input = $("backupInput");
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (data?.app !== "stillpoint" || !data.cfg) throw new Error("not a Stillpoint backup");
+      cfg = migrate(data.cfg);
+      store = { events: normEvents(data.store?.events), legacyHeld: Math.max(0, Number(data.store?.legacyHeld) || 0) };
+      writeLS(LS_CFG, cfg);
+      writeLS(LS_EVENTS, store);
+      applyBackground();
+      renderHome();
+      showView("home");
+      toast("Backup restored");
+    } catch {
+      toast("That file isn't a Stillpoint backup.");
+    }
+  });
+
+  renderHome();
+  applyBackground();
+  connectStore();
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => { /* app still works online without offline support */ });
+    });
+  }
+})();
+</script>
+</body>
+</html>
